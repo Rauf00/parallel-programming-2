@@ -143,31 +143,30 @@ void triangleCountParallelS1(Graph* g, int n_workers) {
             << execution_time << "\n";
 }
 
-void threadFunctionS2(Graph* g, uintE begin, uintE end, thread_data* thread_data){
+void threadFunctionS2(Graph* g, uintV begin, uintV end, thread_data* thread_data){
   timer thread_timer;
   thread_timer.start();
-  long local_edge_count = 0;
-  long local_triangle_count = 0;
-  uintV n = g->n_;
 
-  for (uintE i = begin; i < end; i++) {
-    //std::cout << i << "\n";
-    // uintV v = g->vertices_[u].getOutNeighbor(i);
-    // local_triangle_count += countTriangles(g->vertices_[u].getInNeighbors(),
-    //                                   g->vertices_[u].getInDegree(),
-    //                                   g->vertices_[v].getOutNeighbors(),
-    //                                   g->vertices_[v].getOutDegree(), u, v);
+  long local_triangle_count = 0;
+  for (uintV u = begin; u < end; u++) {
+    uintE out_degree = g->vertices_[u].getOutDegree();
+    for (uintE i = 0; i < out_degree; i++) {
+      uintV v = g->vertices_[u].getOutNeighbor(i);
+      local_triangle_count += countTriangles(g->vertices_[u].getInNeighbors(),
+                                       g->vertices_[u].getInDegree(),
+                                       g->vertices_[v].getOutNeighbors(),
+                                       g->vertices_[v].getOutDegree(), u, v);
+    }
   }
 
   double time_taken = thread_timer.stop();
 
   thread_data->triangle_count = local_triangle_count;
-  thread_data->num_vertices = end - begin;
-  thread_data->num_edges = local_edge_count;
   thread_data->time_taken = time_taken;
 }
 
 void triangleCountParallelS2(Graph* g, int n_workers) {
+  uintE n = g->n_;
   uintE m = g->m_;
   long triangle_count = 0;
 
@@ -180,22 +179,37 @@ void triangleCountParallelS2(Graph* g, int n_workers) {
   std::thread threads[n_workers];
   struct thread_data threads_data_array[n_workers];
 
-  uintE begin = 0;
-  uintE end = m / n_workers;
+  uintV start_vertex = 0;
+  uintV end_vertex = 0;
+  uintE edges_per_worker = m / n_workers;
+  uintE edges_count = m;
+
   for(int i = 0; i < n_workers; i++){
     partition_timer.start();
-    if(i == n_workers - 1){
-      end = m;
+    uintE worker_edges_count = 0;
+    if(i == n_workers - 1) {
+      end_vertex = n; 
+      worker_edges_count = edges_count;
     } else {
-      end = begin + m / n_workers;
+      for(uintV v = start_vertex; v < n; v++) {
+        uintE out_degree = g->vertices_[v].getOutDegree();
+        worker_edges_count += out_degree;
+        if(worker_edges_count >= edges_per_worker) {
+          end_vertex = v; 
+          
+          edges_count -= worker_edges_count;
+          edges_per_worker = edges_count / (n_workers - i - 1);
+          break;
+        }
+      }
     }
     partition_time += partition_timer.stop();
 
     threads_data_array[i].thread_id = i;
-    std::cout << begin << " " << end << "\n";
-    threads[i] = std::thread(threadFunctionS2, g, begin, end, &threads_data_array[i]);
-
-    begin = end;
+    threads_data_array[i].num_vertices = end_vertex - start_vertex;
+    threads_data_array[i].num_edges = worker_edges_count;
+    threads[i] = std::thread(threadFunctionS2, g, start_vertex, end_vertex, &threads_data_array[i]);
+    start_vertex = end_vertex;
   }
 
   // Join threads
@@ -356,7 +370,7 @@ int main(int argc, char *argv[]) {
     break;
   case 2:
     std::cout << "\nEdge-based work partitioning\n";
-    //triangleCountParallelS2(&g, n_workers);
+    triangleCountParallelS2(&g, n_workers);
     break;
   case 3:
     std::cout << "\nDynamic task mapping\n";
