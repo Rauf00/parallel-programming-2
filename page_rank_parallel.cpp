@@ -277,10 +277,11 @@ void pageRankParallelS2(Graph* g, int max_iters, int n_workers) {
   delete[] pr_next;
 }
 
-std::atomic<uintV> n;
+std::atomic<uintV> n_count = {0};
+uint k;
 
 uintV getNextVertexToBeProcessed(){
-  uintV v = --n;
+  uintV v = n_count.fetch_add(k);
   return v;
 }
 
@@ -296,52 +297,61 @@ void threadFunctionS3(Graph* g, PageRankType* pr_curr, std::atomic<PageRankType>
   double barrier1_time = 0.0;
   double barrier2_time = 0.0;
   double getNextVertex_time = 0.0;
+  uintV n_ = g->n_;
 
   for (int iter = 0; iter < max_iters; iter++) {
     while(true) {
       getNextVertex_timer.start();
       uintV u = getNextVertexToBeProcessed();
-      if(u <= -1){
+      if(u >= n_){
         break;
       }
       getNextVertex_time += getNextVertex_timer.stop();
-      uintE out_degree = g->vertices_[u].getOutDegree();
-      local_edge_count += out_degree;
-      for (uintE i = 0; i < out_degree; i++) {
-        uintV v = g->vertices_[u].getOutNeighbor(i);
-        PageRankType expected = pr_next[v].load();
-        PageRankType desired = expected + pr_curr[u] / out_degree;
-        while(!pr_next[v].compare_exchange_strong(expected, desired)){
-          desired = expected + pr_curr[u] / out_degree;
+      for (int j = 0; j < k; j++) {
+        uintE out_degree = g->vertices_[u].getOutDegree();
+        local_edge_count += out_degree;
+        for (uintE i = 0; i < out_degree; i++) {
+          uintV v = g->vertices_[u].getOutNeighbor(i);
+          PageRankType expected = pr_next[v].load();
+          PageRankType desired = expected + pr_curr[u] / out_degree;
+          while(!pr_next[v].compare_exchange_strong(expected, desired)){
+            desired = expected + pr_curr[u] / out_degree;
+          }
         }
+        u++;
+        if(u >= n_) break;
       }
     }
 
     barrier1_timer.start();
     my_barrier->wait();
     barrier1_time += barrier1_timer.stop();
-    n = g->n_;
+    n_count = 0;
     my_barrier->wait();
     
     while(true) {
       getNextVertex_timer.start();
       uintV v = getNextVertexToBeProcessed();
-      if(v <= -1){
+      if(v >= n_){
         break;
       }
       getNextVertex_time += getNextVertex_timer.stop();
-      local_vertex_count++;
-      pr_next[v] = PAGE_RANK(pr_next[v].load());
+      for (int j = 0; j < k; j++) {
+        local_vertex_count++;
+        pr_next[v] = PAGE_RANK(pr_next[v].load());
 
-      // reset pr_curr for the next iteration
-      pr_curr[v] = pr_next[v];
-      pr_next[v] = 0.0;
+        // reset pr_curr for the next iteration
+        pr_curr[v] = pr_next[v];
+        pr_next[v] = 0.0;
+        v++;
+        if(v >= n_) break;
+      }
     }
 
     barrier2_timer.start();
     my_barrier->wait();
     barrier2_time += barrier2_timer.stop();
-    n = g->n_;
+    n_count = 0;
     my_barrier->wait();
   }
 
@@ -354,9 +364,10 @@ void threadFunctionS3(Graph* g, PageRankType* pr_curr, std::atomic<PageRankType>
   thread_data->time_taken = time_taken;
 }
 
-void pageRankParallelS3(Graph* g, int max_iters, int n_workers) {
-  n = {g->n_};
-
+void pageRankParallelS3(Graph* g, int max_iters, int n_workers, uint granularity) {
+  k = granularity;
+  uintV n = g->n_;
+  
   PageRankType *pr_curr = new PageRankType[n];
   std::atomic<PageRankType> *pr_next = new std::atomic<PageRankType>[n];
 
@@ -457,15 +468,15 @@ int main(int argc, char *argv[]) {
     break;
   case 1:
     std::cout << "\nVertex-based work partitioning\n";
-    //pageRankParallelS1(&g, max_iterations, n_workers);
+    pageRankParallelS1(&g, max_iterations, n_workers);
     break;
   case 2:
     std::cout << "\nEdge-based work partitioning\n";
-    //pageRankParallelS2(&g, max_iterations, n_workers);
+    pageRankParallelS2(&g, max_iterations, n_workers);
     break;
   case 3:
     std::cout << "\nDynamic task mapping\n";
-    pageRankParallelS3(&g, max_iterations, n_workers);
+    pageRankParallelS3(&g, max_iterations, n_workers, granularity);
     break;
   default:
     break;
