@@ -277,6 +277,136 @@ void pageRankParallelS2(Graph* g, int max_iters, int n_workers) {
   delete[] pr_next;
 }
 
+std::atomic<uintV> n;
+
+uintV getNextVertexToBeProcessed(){
+  uintV v = --n;
+  return v;
+}
+
+void threadFunctionS3(Graph* g, PageRankType* pr_curr, std::atomic<PageRankType>* pr_next, int max_iters, CustomBarrier* my_barrier, thread_data* thread_data, double* partition_time){
+  timer thread_timer;
+  timer barrier1_timer;
+  timer barrier2_timer;
+  timer getNextVertex_timer;
+  thread_timer.start();
+
+  long local_vertex_count = 0;
+  long local_edge_count = 0;
+  double barrier1_time = 0.0;
+  double barrier2_time = 0.0;
+  double getNextVertex_time = 0.0;
+
+  for (int iter = 0; iter < max_iters; iter++) {
+    while(true) {
+      getNextVertex_timer.start();
+      uintV u = getNextVertexToBeProcessed();
+      if(u <= -1){
+        break;
+      }
+      getNextVertex_time += getNextVertex_timer.stop();
+      uintE out_degree = g->vertices_[u].getOutDegree();
+      local_edge_count += out_degree;
+      for (uintE i = 0; i < out_degree; i++) {
+        uintV v = g->vertices_[u].getOutNeighbor(i);
+        PageRankType expected = pr_next[v].load();
+        PageRankType desired = expected + pr_curr[u] / out_degree;
+        while(!pr_next[v].compare_exchange_strong(expected, desired)){
+          desired = expected + pr_curr[u] / out_degree;
+        }
+      }
+    }
+
+    barrier1_timer.start();
+    my_barrier->wait();
+    barrier1_time += barrier1_timer.stop();
+    n = g->n_;
+    my_barrier->wait();
+    
+    while(true) {
+      getNextVertex_timer.start();
+      uintV v = getNextVertexToBeProcessed();
+      if(v <= -1){
+        break;
+      }
+      getNextVertex_time += getNextVertex_timer.stop();
+      local_vertex_count++;
+      pr_next[v] = PAGE_RANK(pr_next[v].load());
+
+      // reset pr_curr for the next iteration
+      pr_curr[v] = pr_next[v];
+      pr_next[v] = 0.0;
+    }
+
+    barrier2_timer.start();
+    my_barrier->wait();
+    barrier2_time += barrier2_timer.stop();
+    n = g->n_;
+    my_barrier->wait();
+  }
+
+  double time_taken = thread_timer.stop();
+  thread_data->num_vertices = local_vertex_count;
+  thread_data->num_edges = local_edge_count;
+  thread_data->barrier1_time = barrier1_time;
+  thread_data->barrier2_time = barrier2_time;
+  thread_data->getNextVertex_time = getNextVertex_time;
+  thread_data->time_taken = time_taken;
+}
+
+void pageRankParallelS3(Graph* g, int max_iters, int n_workers) {
+  n = {g->n_};
+
+  PageRankType *pr_curr = new PageRankType[n];
+  std::atomic<PageRankType> *pr_next = new std::atomic<PageRankType>[n];
+
+  for (uintV i = 0; i < n; i++) {
+    pr_curr[i] = INIT_PAGE_RANK;
+    pr_next[i] = 0.0;
+  }
+
+  timer execution_timer;
+  timer partition_timer;
+  double execution_time = 0.0;
+  double partition_time = 0.0;
+  execution_timer.start();
+  
+  std::thread threads[n_workers];
+  struct thread_data threads_data_array[n_workers];
+  CustomBarrier my_barrier(n_workers);
+
+  for(int i = 0; i < n_workers; i++){
+    threads_data_array[i].thread_id = i;
+    threads[i] = std::thread(threadFunctionS3, g, pr_curr, pr_next, max_iters, &my_barrier, &threads_data_array[i], &partition_time);
+  }
+
+  for(uint i = 0; i < n_workers; i++){
+    threads[i].join();
+  }
+
+  execution_time = execution_timer.stop();
+  std::cout << "thread_id, num_vertices, num_edges, barrier1_time, barrier2_time, getNextVertex_time, total_time\n";
+  for(uint i = 0; i < n_workers; i++){
+    std::cout << threads_data_array[i].thread_id << ", " 
+              << threads_data_array[i].num_vertices << ", " 
+              << threads_data_array[i].num_edges << ", " 
+              << threads_data_array[i].barrier1_time << ", " 
+              << threads_data_array[i].barrier2_time << ", " 
+              << threads_data_array[i].getNextVertex_time << ", " 
+              << threads_data_array[i].time_taken << "\n";
+  }
+
+  PageRankType sum_of_page_ranks = 0;
+  for (uintV u = 0; u < n; u++) {
+    sum_of_page_ranks += pr_curr[u];
+  }
+  std::cout << "Sum of page rank : " << sum_of_page_ranks << "\n";
+  std::cout << "Partitioning time (in seconds) : " << partition_time << "\n";
+  std::cout << "Time taken (in seconds) : " << execution_time << "\n";
+  delete[] pr_curr;
+  delete[] pr_next;
+}
+
 int main(int argc, char *argv[]) {
   cxxopts::Options options(
       "page_rank_push",
@@ -327,14 +457,15 @@ int main(int argc, char *argv[]) {
     break;
   case 1:
     std::cout << "\nVertex-based work partitioning\n";
-    pageRankParallelS1(&g, max_iterations, n_workers);
+    //pageRankParallelS1(&g, max_iterations, n_workers);
     break;
   case 2:
     std::cout << "\nEdge-based work partitioning\n";
-    pageRankParallelS2(&g, max_iterations, n_workers);
+    //pageRankParallelS2(&g, max_iterations, n_workers);
     break;
   case 3:
     std::cout << "\nDynamic task mapping\n";
+    pageRankParallelS3(&g, max_iterations, n_workers);
     break;
   default:
     break;
