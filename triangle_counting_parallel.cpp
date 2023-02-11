@@ -206,7 +206,7 @@ void triangleCountParallelS2(Graph* g, int n_workers) {
     partition_time += partition_timer.stop();
 
     threads_data_array[i].thread_id = i;
-    threads_data_array[i].num_vertices = end_vertex - start_vertex;
+    threads_data_array[i].num_vertices = 0;
     threads_data_array[i].num_edges = worker_edges_count;
     threads[i] = std::thread(threadFunctionS2, g, start_vertex, end_vertex, &threads_data_array[i]);
     start_vertex = end_vertex;
@@ -237,8 +237,12 @@ void triangleCountParallelS2(Graph* g, int n_workers) {
             << execution_time << "\n";
 }
 
-uintV n;
-std::mutex mutex_s3;
+std::atomic<uintV> n_count;
+
+uintV getNextVertexToBeProcessed(){
+  uintV v = n_count.fetch_add(-1);
+  return v;
+}
 
 void threadFunctionS3(Graph* g, thread_data* thread_data, double* partition_time){
   timer thread_timer;
@@ -252,20 +256,15 @@ void threadFunctionS3(Graph* g, thread_data* thread_data, double* partition_time
   uintV u;
   while(true){
     partition_timer.start();
-    mutex_s3.lock();
-    u = n;
-    if(u == -1){
-      mutex_s3.unlock();
-      break;
-    }
-    n--;
-    mutex_s3.unlock();
+    uintV u = getNextVertexToBeProcessed();
     double t_partitionTime = partition_timer.stop();
-
     if(thread_data->thread_id == 0){
       partition_time_t0 += t_partitionTime;
     }
 
+    if(u <= -1){
+      break;
+    }
     local_vertex_count++;
     uintE out_degree = g->vertices_[u].getOutDegree();
     local_edge_count += out_degree;
@@ -288,7 +287,7 @@ void threadFunctionS3(Graph* g, thread_data* thread_data, double* partition_time
 }
 
 void triangleCountParallelS3(Graph* g, int n_workers) {
-  n = g->n_ - 1;
+  n_count = g->n_ - 1;
   long triangle_count = 0;
 
   double execution_time = 0.0;
