@@ -88,7 +88,7 @@ void threadFunctionS1(Graph* g, uintV begin, uintV end, thread_data* thread_data
   thread_data->time_taken = time_taken;
 }
 
-void triangleCountParallelS1(Graph* g, int n_workers) {
+void triangleCountParallelS1(Graph* g, uint n_workers) {
   uintV n = g->n_;
   long triangle_count = 0;
 
@@ -126,7 +126,7 @@ void triangleCountParallelS1(Graph* g, int n_workers) {
   execution_time = execution_timer.stop();
 
   std::cout << "thread_id, num_vertices, num_edges, triangle_count, time_taken\n";
-  for(int i = 0; i < n_workers; i++){
+  for(uint i = 0; i < n_workers; i++){
     triangle_count += threads_data_array[i].triangle_count;
     std::cout << threads_data_array[i].thread_id << ", " 
               << threads_data_array[i].num_vertices << ", " 
@@ -165,7 +165,7 @@ void threadFunctionS2(Graph* g, uintV begin, uintV end, thread_data* thread_data
   thread_data->time_taken = time_taken;
 }
 
-void triangleCountParallelS2(Graph* g, int n_workers) {
+void triangleCountParallelS2(Graph* g, uint n_workers) {
   uintE n = g->n_;
   uintE m = g->m_;
   long triangle_count = 0;
@@ -184,7 +184,7 @@ void triangleCountParallelS2(Graph* g, int n_workers) {
   uintE edges_per_worker = m / n_workers;
   uintE edges_count = m;
 
-  for(int i = 0; i < n_workers; i++){
+  for(uint i = 0; i < n_workers; i++){
     partition_timer.start();
     uintE worker_edges_count = 0;
     if(i == n_workers - 1) {
@@ -220,7 +220,7 @@ void triangleCountParallelS2(Graph* g, int n_workers) {
   execution_time = execution_timer.stop();
 
   std::cout << "thread_id, num_vertices, num_edges, triangle_count, time_taken\n";
-  for(int i = 0; i < n_workers; i++){
+  for(uint i = 0; i < n_workers; i++){
     triangle_count += threads_data_array[i].triangle_count;
     std::cout << threads_data_array[i].thread_id << ", " 
               << threads_data_array[i].num_vertices << ", " 
@@ -286,7 +286,7 @@ void threadFunctionS3(Graph* g, thread_data* thread_data, double* partition_time
   thread_data->time_taken = time_taken;
 }
 
-void triangleCountParallelS3(Graph* g, int n_workers) {
+void triangleCountParallelS3(Graph* g, uint n_workers) {
   n_count = g->n_ - 1;
   long triangle_count = 0;
 
@@ -299,20 +299,20 @@ void triangleCountParallelS3(Graph* g, int n_workers) {
   std::thread threads[n_workers];
   struct thread_data threads_data_array[n_workers];
 
-  for(int i = 0; i < n_workers; i++){
+  for(uint i = 0; i < n_workers; i++){
     threads_data_array[i].thread_id = i;
     threads[i] = std::thread(threadFunctionS3, g, &threads_data_array[i], &partition_time);
   }
 
   // Join threads
-  for(int i = 0; i < n_workers; i++){
+  for(uint i = 0; i < n_workers; i++){
     threads[i].join();
   }
 
   execution_time = execution_timer.stop();
 
   std::cout << "thread_id, num_vertices, num_edges, triangle_count, time_taken\n";
-  for(int i = 0; i < n_workers; i++){
+  for(uint i = 0; i < n_workers; i++){
     triangle_count += threads_data_array[i].triangle_count;
     std::cout << threads_data_array[i].thread_id << ", " 
               << threads_data_array[i].num_vertices << ", " 
