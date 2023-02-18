@@ -243,8 +243,6 @@ void pageRankParallelS2(Graph* g, uint max_iters, uint n_workers) {
     partition_time += partition_timer.stop();
 
     threads_data_array[i].thread_id = i;
-    threads_data_array[i].num_vertices = 0;
-    threads_data_array[i].num_edges = worker_edges_count;
     threads[i] = std::thread(threadFunctionS12, g, start_vertex, end_vertex, pr_curr, pr_next, max_iters, &my_barrier, &threads_data_array[i]);
 
     start_vertex = end_vertex;
@@ -325,9 +323,9 @@ void threadFunctionS3(Graph* g, PageRankType* pr_curr, std::atomic<PageRankType>
 
     barrier1_timer.start();
     my_barrier->wait();
-    barrier1_time += barrier1_timer.stop();
     n_count = 0;
     my_barrier->wait();
+    barrier1_time += barrier1_timer.stop();
     
     while(true) {
       getNextVertex_timer.start();
@@ -350,9 +348,9 @@ void threadFunctionS3(Graph* g, PageRankType* pr_curr, std::atomic<PageRankType>
 
     barrier2_timer.start();
     my_barrier->wait();
-    barrier2_time += barrier2_timer.stop();
     n_count = 0;
     my_barrier->wait();
+    barrier2_time += barrier2_timer.stop();
   }
 
   double time_taken = thread_timer.stop();
@@ -452,7 +450,7 @@ int main(int argc, char *argv[]) {
   std::cout << std::fixed;
   std::cout << "Number of workers : " << n_workers << "\n";
   std::cout << "Task decomposition strategy : " << strategy << "\n";
-  std::cout << "Iterations : " << max_iterations << "\n";
+  //std::cout << "Iterations : " << max_iterations << "\n";
   std::cout << "Iterations : " << max_iterations << "\n";
   std::cout << "Granularity : " << granularity << "\n";
 
